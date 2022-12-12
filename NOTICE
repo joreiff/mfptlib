@@ -1,0 +1,8 @@
+mfptlib: Mean First-Passage Time Library
+Copyright 2021 Johannes Reiff
+
+This software was developed by Johannes Reiff
+at the Institute for Theoretical Physics I, University of Stuttgart.
+It is licensed under the Apache License, Version 2.0,
+which can be found in the attached LICENSE file.
+Most source files include the appropriate SPDX license identifier.

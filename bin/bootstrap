@@ -1,0 +1,13 @@
+#!/bin/bash
+# Copyright 2021 Johannes Reiff
+# SPDX-License-Identifier: Apache-2.0
+
+if [[ $1 =~ ^(-h|--help)$ ]]; then
+    echo "Usage: $0 [PYTHON [PIP_OPTIONS]...]"
+    exit
+fi
+
+PYTHON_EXE="${1:-python3}"
+PIP_ARGS=("${@:2}")
+
+"$PYTHON_EXE" -m pip install "${PIP_ARGS[@]}" "tomli >=2.0,<3" "click >=8.0,<9"

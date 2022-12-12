@@ -1,0 +1,8 @@
+# Copyright 2022 Johannes Reiff
+# SPDX-License-Identifier: Apache-2.0
+
+[default]
+CMAKE_CXX_COMPILER = 'clang++-15'
+MFPTLIB_USE_STDLIB = 'libc++'
+MFPTLIB_USE_LD = 'lld-15'
+MFPTLIB_COLORED_DIAGNOSTICS = true

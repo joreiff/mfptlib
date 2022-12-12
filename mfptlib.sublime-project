@@ -1,0 +1,156 @@
+// Copyright 2021 Johannes Reiff
+// SPDX-License-Identifier: Apache-2.0
+{
+	"folders":
+	[
+		{
+			"path": ".",
+			"folder_exclude_patterns":
+			[
+				"*.egg-info",
+				".cache",
+				".pytest_cache",
+				"__pycache__",
+				"_doc",
+				"_skbuild",
+				"_venv",
+			],
+			"file_exclude_patterns":
+			[
+			],
+		}
+	],
+	"build_systems":
+	[
+		{
+			"name": "Init Dev VEnv",
+			"target": "terminus_exec",
+			"cancel": "terminus_cancel_build",
+			"cmd":
+			[
+				"$project_path/bin/dev",
+				"init-venv",
+				"-c", "$project_path/cfg/example.toml",
+			],
+			"variants":
+			[
+				{
+					"name": "Reinstall",
+					"cmd":
+					[
+						"$project_path/bin/dev",
+						"install",
+						"-c", "$project_path/cfg/example.toml",
+					],
+				},
+			],
+		},
+		{
+			"name": "Build Extension Inplace",
+			"target": "terminus_exec",
+			"cancel": "terminus_cancel_build",
+			"cmd":
+			[
+				"$project_path/bin/dev",
+				"build",
+				"-c", "$project_path/cfg/example.toml",
+			],
+		},
+		{
+			"name": "Run Python Tests",
+			"target": "terminus_exec",
+			"cancel": "terminus_cancel_build",
+			"cmd": ["$project_path/bin/dev", "test"],
+		},
+		{
+			"name": "Build Wheel",
+			"target": "terminus_exec",
+			"cancel": "terminus_cancel_build",
+			"cmd":
+			[
+				"$project_path/bin/dev",
+				"wheel",
+				"-c", "$project_path/cfg/example.toml",
+			],
+		},
+		{
+			"name": "Build Documentation",
+			"target": "terminus_exec",
+			"cancel": "terminus_cancel_build",
+			"cmd": ["$project_path/bin/dev", "docs", "html"],
+			"variants":
+			[
+				{
+					"name": "PDF",
+					"cmd": ["$project_path/bin/dev", "docs", "latexpdf"],
+				},
+			],
+		},
+		{
+			"name": "View Documentation",
+			"cmd": ["xdg-open", "$project_path/_doc/html/index.html"],
+			"variants":
+			[
+				{
+					"name": "PDF",
+					"cmd": ["xdg-open", "$project_path/_doc/latex/mfptlib.pdf"],
+				},
+			],
+		},
+		{
+			"name": "Open Shell",
+			"target": "terminus_open",
+			"cmd": ["$project_path/bin/dev", "run"],
+		},
+		{
+			"name": "Clean",
+			"target": "terminus_exec",
+			"cancel": "terminus_cancel_build",
+			"cmd": ["$project_path/bin/dev", "clean"],
+			"variants":
+			[
+				{
+					"name": "CMake",
+					"cmd": ["$project_path/bin/dev", "clean", "cmake"],
+				},
+				{
+					"name": "All",
+					"cmd": ["$project_path/bin/dev", "clean", "all"],
+				},
+			],
+		},
+	],
+	"settings":
+	{
+		"LSP":
+		{
+			"clangd":
+			{
+				"initializationOptions":
+				{
+					"compilationDatabasePath": "$project_path/_skbuild/",
+				},
+			},
+		},
+		"todoreview":
+		{
+			"exclude_folders":
+			[
+				"/*.egg-info/*",
+				"/.cache/*",
+				"/.git/*",
+				"/.pytest_cache/*",
+				"/__pycache__/*",
+				"/_doc/*",
+				"/_skbuild/*",
+			],
+			"exclude_files":
+			[
+				".sublime-workspace",
+				"~",
+				"/front/py/mfptlib/*.so",
+				"/front/py/mfptlib/_version.py",
+			],
+		},
+	},
+}

@@ -1,0 +1,49 @@
+# Copyright 2021 Johannes Reiff
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+build-backend = 'setuptools.build_meta'
+requires = [
+    'cmake >=3.21',
+    'ninja >=1.10',
+    'scikit-build >=0.15',
+    'setuptools >=60.0',
+    'setuptools-scm >=6.4',
+    'wheel >=0.37',
+]
+
+
+[tool.pylint.master]
+jobs = 0
+ignore = [
+    '.git',
+]
+extension-pkg-allow-list = [
+    'mfptlib._backend',
+]
+
+[tool.pylint.'messages control']
+disable = [
+    'missing-docstring',
+    'no-else-raise',
+    'no-else-return',
+    'too-few-public-methods',
+]
+
+[tool.pylint.basic]
+argument-rgx = '[a-z_][a-z0-9_]{,30}$'
+variable-rgx = '[a-z_][a-z0-9_]{,30}$'
+
+[tool.pylint.design]
+max-args = 8
+
+[tool.pylint.format]
+expected-line-ending-format = 'LF'
+
+[tool.pylint.logging]
+logging-format-style = 'new'
+
+
+[tool.pytest.ini_options]
+addopts = '--last-failed'
+testpaths = ['front/test']

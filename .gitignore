@@ -1,0 +1,20 @@
+# Copyright 2021 Johannes Reiff
+# SPDX-License-Identifier: Apache-2.0
+
+# Generic
+.cache/
+
+# Editor-specific
+*.sublime-workspace
+*~
+.vscode/
+
+# Build artifacts
+*.egg-info/
+__pycache__/
+_dist/
+_doc/
+_skbuild/
+_venv/
+front/py/mfptlib/*.so
+front/py/mfptlib/_version.py

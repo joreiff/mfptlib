@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+# Copyright 2021 Johannes Reiff
+# SPDX-License-Identifier: Apache-2.0
+
+import contextlib
+import itertools
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+
+import click
+import tomli
+
+
+@click.group()
+def cli():
+    """Development helper for mfptlib."""
+
+
+@cli.command()
+@click.argument('cmake_vars', nargs=-1)
+@click.option('-c', '--config', type=click.Path(exists=True, dir_okay=False),
+    help='Path to and optional name of the CMake build configuration entry.')
+def init_venv(cmake_vars, config):
+    """Initialize the virtual environment and install mfptlib in it."""
+
+    with _translate_exceptions():
+        with (_PROJ_DIR / 'pyproject.toml').open('rb') as fp:
+            build_deps = tomli.load(fp)['build-system']['requires']
+
+        _run_cmd((sys.executable, '-m', 'venv', _VENV_DIR))
+        _run_venv_cmd(('pip', 'install', 'pip >=22.2'))
+        _run_venv_cmd(('pip', 'install') + tuple(build_deps))
+        _install_mfptlib(config, cmake_vars)
+
+    _exit_success('Virtual environment initialized at "{}".', _VENV_DIR)
+
+
+@cli.command()
+@click.argument('cmake_vars', nargs=-1)
+@click.option('-c', '--config', type=click.Path(exists=True, dir_okay=False),
+    help='Path to and optional name of the CMake build configuration entry.')
+def install(cmake_vars, config):
+    """(Re-)Install mfptlib into the virtual environment."""
+
+    with _translate_exceptions():
+        _install_mfptlib(config, cmake_vars)
+
+    _exit_success('Installation completed successfully.')
+
+
+@cli.command()
+@click.argument('cmake_vars', nargs=-1)
+@click.option('-c', '--config', type=click.Path(exists=True, dir_okay=False),
+    help='Path to and optional name of the CMake build configuration entry.')
+def build(cmake_vars, config):
+    """Build mfptlib and run C++ unit tests."""
+
+    with _translate_exceptions():
+        cmake_args = tuple('-D' + var for var in cmake_vars)
+        _run_venv_cmd(
+            ('./setup.py', 'build_ext', '--inplace') + cmake_args,
+            add_env=_cmake_env_vars(config, cmake_vars, compdb=True),
+            cwd=_PROJ_DIR,
+        )
+
+    _exit_success('Build completed successfully.')
+
+
+@cli.command()
+@click.argument('pytest_args', nargs=-1, type=click.Path())
+def test(pytest_args):
+    """Run the Python test suite."""
+
+    with _translate_exceptions():
+        _run_venv_cmd(('pytest', '-W', 'error') + pytest_args, cwd=_PROJ_DIR)
+
+    _exit_success('Tests ran successfully.')
+
+
+@cli.command()
+@click.argument('builder', default='help')
+def docs(builder):
+    """Build the documentation."""
+
+    with _translate_exceptions():
+        _run_venv_cmd(
+            ('sphinx-build', '-M', builder, _PROJ_DIR / 'doc', _DOCS_DIR))
+
+    _exit_success('Documentation built successfully.')
+
+
+@cli.command()
+@click.argument('categories', nargs=-1)
+@click.option('-l', '--list-categories', is_flag=True,
+    help='List all available categories.')
+def clean(categories, list_categories):
+    """Remove build artifacts."""
+
+    if list_categories:
+        click.echo('Available: ' + ', '.join(_BUILD_ARTIFACTS))
+        click.echo('Default: ' + ', '.join(_DEFAULT_ARTIFACT_CATS))
+        click.echo('Special: all')
+        _exit_success('No build artifacts removed.')
+
+    with _translate_exceptions():
+        if 'all' in categories:
+            items = itertools.chain(
+                _BUILD_ARTIFACTS.values(), [_BUILD_ARTIFACTS_ALL])
+        else:
+            categories = categories or _DEFAULT_ARTIFACT_CATS
+            items = (_BUILD_ARTIFACTS[cat] for cat in categories)
+
+        for category in items:
+            for item in category:
+                _remove_proj_item(item)
+
+    _exit_success('Build artifacts removed successfully.')
+
+
+@cli.command()
+@click.argument('cmd_line', nargs=-1, type=click.Path())
+def run(cmd_line):
+    """Run a command in the context of the virtual environment."""
+
+    with _translate_exceptions():
+        _run_venv_cmd(cmd_line
+            or ('bash', '--init-file', _BIN_DIR / 'venv_init.bash', '-i'))
+
+
+@cli.command()
+@click.argument('cmake_vars', nargs=-1)
+@click.option('-c', '--config', type=click.Path(exists=True, dir_okay=False),
+    help='Path to and optional name of the CMake build configuration entry.')
+@click.option('-s', '--subdir', default='', type=click.Path(),
+    help='The _dist/ subdirectory to place the wheel in.')
+def wheel(cmake_vars, config, subdir):
+    """Build a wheel."""
+
+    with _translate_exceptions():
+        _run_cmd(
+            (sys.executable, '-m', 'pip', 'wheel', '--no-deps',
+                '--wheel-dir', _DIST_DIR / subdir, _PROJ_DIR),
+            add_env=_cmake_env_vars(config, cmake_vars),
+        )
+
+    _exit_success('Wheel successfully built.')
+
+
+def _install_mfptlib(config, cmake_vars):
+    # NOTE: Currently uses environment variables until PEP 517 config settings
+    # are implemented in scikit-build.
+    legacy_editable = {'SETUPTOOLS_ENABLE_FEATURES': 'legacy-editable'}
+    _run_venv_cmd(
+        ('pip', 'install', '--no-build-isolation', '-e', '.[dev]'),
+        add_env=_cmake_env_vars(config, cmake_vars, compdb=True) | legacy_editable,
+        cwd=_PROJ_DIR,
+    )
+
+
+def _cmake_env_vars(config, cmake_vars, compdb=False):
+    env = {'CMAKE_EXPORT_COMPILE_COMMANDS:BOOL': 'ON'} if compdb else {}
+    if config:
+        env.update(_load_build_config(config))
+
+    env.update(v.split('=', maxsplit=1) for v in cmake_vars)
+    return {f'MFPTLIB_SETUP_{key}': val for key, val in env.items()}
+
+
+def _load_build_config(cfg_spec):
+    match = re.fullmatch(r'(?P<path>.+?)(?:\[(?P<section>.*)\])?', cfg_spec)
+    if not match:
+        raise RuntimeError(f'Invalid config specifier: {cfg_spec}')
+
+
+    with pathlib.Path(match['path']).open('rb') as fp:
+        toml = tomli.load(fp)
+
+    config = toml.get('default', {})
+    if match['section']:
+        config.update(toml.get(match['section'], {}))
+
+    cmakeify = lambda kv: (
+        (f'{kv[0]}:BOOL', ('ON' if kv[1] else 'OFF'))
+        if isinstance(kv[1], bool)
+        else kv
+    )
+
+    return dict(map(cmakeify, config.items()))
+
+
+def _run_venv_cmd(cmd, **kwargs):
+    if not (_VENV_DIR / 'bin' / 'python').exists():
+        raise RuntimeError(f'Path is not a virtual environment: {_VENV_DIR}')
+
+    add_env = kwargs.pop('add_env', {})
+    add_env['VIRTUAL_ENV'] = str(_VENV_DIR)
+    add_env['PATH'] = os.pathsep.join((
+        str(_VENV_DIR / 'bin'),
+        os.environ.get('PATH', ''),
+    ))
+
+    return _run_cmd(cmd, add_env=add_env, **kwargs)
+
+
+def _run_cmd(cmd, check=True, add_env=None, **kwargs):
+    if 'cwd' in kwargs:
+        kwargs['cwd'] = str(kwargs['cwd'])
+
+    if add_env:
+        env = kwargs.setdefault('env', os.environ.copy())
+        env.update(add_env)
+
+    return subprocess.run([str(arg) for arg in cmd], check=check, **kwargs)
+
+
+def _remove_proj_item(item):
+    item = pathlib.Path(_PROJ_DIR, item).relative_to(_PROJ_DIR)
+    for full_path in _PROJ_DIR.glob(str(item)):
+        click.echo('Removing "{}"...'.format(full_path.relative_to(_PROJ_DIR)))
+        _rm_fs_item(full_path)
+
+
+def _rm_fs_item(full_path):
+    with contextlib.suppress(FileNotFoundError):
+        try:
+            full_path.unlink()
+        except IsADirectoryError:
+            shutil.rmtree(str(full_path))
+
+
+@contextlib.contextmanager
+def _translate_exceptions():
+    try:
+        yield
+    except subprocess.CalledProcessError as e:
+        _exit_failure('Process returned with code {}.', e.returncode)
+    except (KeyboardInterrupt, click.Abort):
+        _exit_failure('Aborted.')
+    except Exception as e:
+        _exit_failure('{}: {}', type(e).__name__, str(e) or 'N/A')
+
+
+def _exit_success(msg, *args, **kwargs):
+    click.secho(msg.format(*args, **kwargs), fg='bright_green', err=True)
+    sys.exit(0)
+
+
+def _exit_failure(msg, *args, **kwargs):
+    click.secho(msg.format(*args, **kwargs), fg='bright_red', err=True)
+    sys.exit(1)
+
+
+_BIN_DIR = pathlib.Path(__file__).resolve().parent
+_PROJ_DIR = _BIN_DIR.parent
+_VENV_DIR = _PROJ_DIR / '_venv'
+_DIST_DIR = _PROJ_DIR / '_dist'
+_DOCS_DIR = _PROJ_DIR / '_doc'
+_DEFAULT_ARTIFACT_CATS = ('cache', 'cmake', 'venv')
+_BUILD_ARTIFACTS = {
+    'cache': (
+        '.pytest_cache/',
+        'front/py/mfptlib/__pycache__/',
+    ),
+    'cmake': (
+        '_skbuild/build-*/',
+    ),
+    'deps': (
+        '_skbuild/deps/',
+    ),
+    'dist': (
+        _DIST_DIR,
+        _DOCS_DIR,
+    ),
+    'venv': (
+        _VENV_DIR,
+        'front/py/mfptlib.egg-info/',
+        'front/py/mfptlib/_backend.*.so',
+        'front/py/mfptlib/_version.py',
+    ),
+}
+_BUILD_ARTIFACTS_ALL = (
+    '_skbuild/',
+)
+
+
+if __name__ == '__main__':
+    sys.exit(int(cli() or 0))
